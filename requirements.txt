@@ -1,4 +1,5 @@
+instagrapi
+pillow
 aiohttp
 asyncpg
 pytz
-instagrapi==1.19.6
