@@ -1,52 +1,57 @@
+import asyncio
 from instagrapi import Client
-from instagrapi.exceptions import LoginRequired, ProxyBad, ChallengeRequired
-import datetime
-import os
+from instagrapi.exceptions import LoginRequired, ChallengeRequired
+from proxy_config import PROXY
 
-PROXY_URL = os.getenv("IG_PROXY")  # socks5://user:pass@host:port
-IG_LOGIN = os.getenv("IG_LOGIN")
-IG_PASSWORD = os.getenv("IG_PASSWORD")
+IG_USERNAME = "error_dixon"
+IG_PASSWORD = "1226"
 
-
-def login_client():
-    cl = Client()
-    if PROXY_URL:
-        cl.set_proxy(PROXY_URL)
-
-    cl.login(IG_LOGIN, IG_PASSWORD)
-    return cl
+# глобальный клиент чтобы не логиниться на каждый запрос
+cl = Client()
 
 
-def check_account(username):
-    cl = login_client()
+async def login():
+    if not cl.user_id:
+        try:
+            print("Logging into Instagram...")
+            cl.set_proxy(PROXY)
+            cl.login(IG_USERNAME, IG_PASSWORD)
+            print("Login success!")
+        except ChallengeRequired:
+            print("ChallengeRequired — Instagram blocked login")
+        except LoginRequired:
+            print("LoginRequired — bad login")
+        except Exception as e:
+            print("Login error:", e)
 
-    user_id = cl.user_id_from_username(username)
-    now = datetime.date.today()
 
-    # --- Stories ---
-    has_story = False
+async def check_account(username: str):
     try:
-        stories = cl.user_stories(user_id)
-        if stories:
-            has_story = True
-    except:
-        pass
+        await login()
+        cl.set_proxy(PROXY)
 
-    # --- Posts/Reels ---
-    posts_today = False
-    reels_today = False
+        user_id = cl.user_id_from_username(username)
+        feed = cl.user_medias(user_id, 20)
 
-    try:
-        medias = cl.user_medias(user_id, 10)
-        for m in medias:
+        has_story = bool(cl.user_stories(user_id))
+
+        reels_today = False
+        posts_today = False
+
+        from datetime import datetime
+        today = datetime.utcnow().date()
+
+        for m in feed:
             ts = m.taken_at.date()
-            if ts == now:
-                if m.media_type == 2:  # video / reel
+            if ts == today:
+                if m.media_type == 2:
                     reels_today = True
                 else:
                     posts_today = True
-    except:
-        pass
 
-    return (username, has_story, reels_today, posts_today)
+        return username, has_story, reels_today, posts_today
+
+    except Exception as e:
+        print(f"Error checking {username}: {e}")
+        return username, False, False, False
 
