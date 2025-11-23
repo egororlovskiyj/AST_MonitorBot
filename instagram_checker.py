@@ -1,12 +1,21 @@
 # instagram_checker.py
-
 from insta_client import get_insta_client
 
+# создаём глобальный Instagram-клиент один раз (быстро и стабильно)
 insta = get_insta_client()
 
 
 async def check_account_content(username: str):
-    """Возвращает dict с флагами: сториз, рилсы, посты."""
+    """
+    Проверяет сториз / рилсы / посты через instagrapi.
+    Возвращает словарь для bot.py:
+    {
+        "story": True/False,
+        "reels": True/False,
+        "post": True/False,
+        "error": None or error_text
+    }
+    """
 
     try:
         user_id = insta.user_id_from_username(username)
@@ -19,7 +28,7 @@ async def check_account_content(username: str):
         reels = insta.user_clips(user_id)
         has_reels = len(reels) > 0
 
-        # Последний пост (1 шт.)
+        # Посты (последний пост)
         posts = insta.user_medias(user_id, amount=1)
         has_post = len(posts) > 0
 
@@ -37,3 +46,4 @@ async def check_account_content(username: str):
             "post": False,
             "error": str(e)
         }
+
