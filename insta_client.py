@@ -1,17 +1,26 @@
+# insta_client.py
+
+import os
 from instagrapi import Client
 
-# === Instagram credentials ===
-IG_USERNAME = "error_dixon"
-IG_PASSWORD = "1226Egor!"  # <-- 
+# Instagram credentials
+IG_USERNAME = os.getenv("IG_USERNAME", "error_dixon")
+IG_PASSWORD = os.getenv("IG_PASSWORD", "1226Egor!")
 
-# === Socks5 proxy ===
-PROXY_URL = "socks5://originalharmony271109:eWvTse@5y7uqt2ob5.cn.fxdx.in:15469"
+# Proxy (SOCKS5)
+PROXY_HOST = os.getenv("PROXY_HOST", "5y7uqt2ob5.cn.fxdx.in")
+PROXY_PORT = os.getenv("PROXY_PORT", "15469")
+PROXY_USER = os.getenv("PROXY_USER", "originalharmony271109")
+PROXY_PASS = os.getenv("PROXY_PASS", "eWvTse")
+
+PROXY_URL = f"socks5://{PROXY_USER}:{PROXY_PASS}@{PROXY_HOST}:{PROXY_PORT}"
 
 
 def get_insta_client():
+    """Создаёт Instagram клиент с сессией и прокси."""
     cl = Client()
 
-    # подключаем proxy
+    # подключаем SOCKS5 proxy
     cl.set_proxy(PROXY_URL)
 
     # пробуем загрузить сессию
@@ -19,15 +28,15 @@ def get_insta_client():
         cl.load_settings("ig_session.json")
         cl.login(IG_USERNAME, IG_PASSWORD)
     except Exception:
-        # если не получилось — создаём новую
+        # fallback — создаём новую
         cl.login(IG_USERNAME, IG_PASSWORD)
         cl.dump_settings("ig_session.json")
 
     return cl
 
 
-# ==== ТЕСТ ====
+# тест
 if __name__ == "__main__":
-    cli = get_insta_client()
-    me = cli.user_info_by_username(IG_USERNAME)
-    print(me)
+    client = get_insta_client()
+    print(client.user_info_by_username("instagram"))
+
