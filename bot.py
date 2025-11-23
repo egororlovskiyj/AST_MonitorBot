@@ -1,3 +1,7 @@
+import os
+print("ENV TG_CHAT =", os.getenv("TG_CHAT"))
+print("ENV BOT_TOKEN =", os.getenv("BOT_TOKEN"))
+print("ENV DATABASE_URL =", os.getenv("DATABASE_URL"))
 import json
 import asyncio
 from config import BOT_TOKEN, CHAT_ID
@@ -34,3 +38,4 @@ async def run_report():
 
 if __name__ == "__main__":
     asyncio.run(run_report())
+
