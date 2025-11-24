@@ -1,9 +1,10 @@
+# bot.py
 import os
 import json
-import asyncio
-from datetime import datetime, timedelta
+import time
 import pytz
-import aiohttp
+import requests
+from datetime import datetime, timedelta
 
 from config import BOT_TOKEN, CHAT_ID, TIMEZONE
 from monitor import check_account
@@ -11,75 +12,93 @@ from report import build_report
 from db import init_db, update_cache
 
 
-# ============ Telegram Sender ============
+# ================= Telegram Sender =================
 
-async def send_message(text):
+def send_message(text: str):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    async with aiohttp.ClientSession() as session:
-        await session.post(url, data={"chat_id": CHAT_ID, "text": text})
+    try:
+        requests.post(url, data={"chat_id": CHAT_ID, "text": text})
+    except Exception as e:
+        print("[Telegram] Error sending message:", e)
 
 
-# ============ Generate daily report ============
+# ================= Report generator =================
 
-async def run_report():
-    await init_db()
+def run_report():
+    print("[report] Initializing DB...")
+    try:
+        # DB is async so we call it through event loop
+        import asyncio
+        asyncio.run(init_db())
+    except:
+        pass
 
+    print("[report] Loading accounts.json...")
     with open("accounts.json", "r") as f:
         accounts = json.load(f)
 
     results = {}
 
+    print("[report] Checking accounts...")
     for country, lst in accounts.items():
         results[country] = []
         for user in lst:
-            username, story, reels, post = await check_account(user)
-            await update_cache(username, reels, post, story)
+            username, story, reels, post = check_account(user)
+
+            # update DB
+            try:
+                import asyncio
+                asyncio.run(update_cache(username, reels, post, story))
+            except:
+                pass
+
             results[country].append((username, story, reels, post))
 
+    print("[report] Building report...")
     text = build_report(results)
-    await send_message(text)
+
+    print("[report] Sending telegram message...")
+    send_message(text)
+    print("[report] Report sent!")
 
 
-# ============ Daily scheduler (24/7 worker) ============
+# ================= Scheduler (24/7 worker) =================
 
-async def scheduler():
-    """
-    Работает 24/7.
-    Ждёт каждый день 21:00 по Киеву и запускает отчёт.
-    """
-
+def scheduler():
     tz = pytz.timezone(TIMEZONE)
-    TARGET_HOUR = 21
+
+    TARGET_HOUR = 21     # Kiev time
     TARGET_MINUTE = 0
+
+    print("[scheduler] Worker started. Waiting for daily report...")
 
     while True:
         now = datetime.now(tz)
 
         target = now.replace(hour=TARGET_HOUR, minute=TARGET_MINUTE, second=0, microsecond=0)
 
+        # если уже прошло 21:00, переносим на завтра
         if now > target:
-            # если текущее время уже позже 21:00 — переносим на завтра
             target += timedelta(days=1)
 
         wait_seconds = (target - now).total_seconds()
 
-        print(f"[scheduler] Next report at: {target} | waiting {wait_seconds} seconds")
+        print(f"[scheduler] Next run at {target}. Waiting {int(wait_seconds)} sec")
+        time.sleep(wait_seconds)
 
-        await asyncio.sleep(wait_seconds)
-
-        # запускаем отчёт
+        # запуск отчёта
         try:
             print("[scheduler] Running daily report...")
-            await run_report()
-            print("[scheduler] Report sent.")
+            run_report()
         except Exception as e:
-            print(f"[scheduler] ERROR: {e}")
+            print("[scheduler] ERROR:", e)
 
-        # ждём минуту, чтобы случайно не повторить отчёт
-        await asyncio.sleep(60)
+        # защита от двойного запуска
+        time.sleep(60)
 
 
-# ============ Entry point ============
+# ================= Entry point =================
+
 if __name__ == "__main__":
-    asyncio.run(scheduler())
-    
+    scheduler()
+
