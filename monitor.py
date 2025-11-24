@@ -1,49 +1,54 @@
+import asyncio
 import aiohttp
-import datetime
+from datetime import datetime, timedelta
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-}
+BASE_URL = "https://www.instagram.com/{username}/?__a=1&__d=dis"
 
-async def fetch_user_data(username):
-    url = f"https://www.instagram.com/{username}/?__a=1&__d=dis"
+
+async def fetch_json(url):
     async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=HEADERS) as r:
-            if r.status != 200:
-                return None
-            return await r.json()
+        try:
+            async with session.get(url, headers={
+                "User-Agent": "Mozilla/5.0"
+            }) as resp:
+                return await resp.json()
+        except:
+            return None
 
-async def check_account(username):
-    try:
-        data = await fetch_user_data(username)
-        if not data:
-            return username, False, False, False
 
-        today = datetime.datetime.utcnow().date()
+async def check_account(username: str):
+    url = BASE_URL.format(username=username)
 
-        # Проверка сториз через публичные данные
-        has_story = "story" in str(data).lower()
+    data = await fetch_json(url)
 
-        reels_today = False
-        posts_today = False
-
-        edges = data["graphql"]["user"]["edge_owner_to_timeline_media"]["edges"]
-
-        for item in edges:
-            node = item["node"]
-            ts = datetime.datetime.fromtimestamp(node["taken_at_timestamp"]).date()
-
-            if ts == today:
-                if node["is_video"]:
-                    reels_today = True
-                else:
-                    posts_today = True
-
-        return username, has_story, reels_today, posts_today
-
-    except Exception as e:
-        print("Error:", e)
+    if not data:
+        print(f"[ERROR] Cannot load {username}")
         return username, False, False, False
 
+    try:
+        user = data["graphql"]["user"]
+    except:
+        print(f"[ERROR] JSON changed for {username}")
+        return username, False, False, False
 
+    # stories
+    has_story = user.get("has_public_story", False)
 
+    # posts
+    today = datetime.utcnow().date()
+    reels_today = False
+    posts_today = False
+
+    edges = user["edge_owner_to_timeline_media"]["edges"]
+
+    for e in edges:
+        node = e["node"]
+        ts = datetime.fromtimestamp(node["taken_at_timestamp"]).date()
+
+        if ts == today:
+            if node["is_video"]:
+                reels_today = True
+            else:
+                posts_today = True
+
+    return username, has_story, reels_today, posts_today
