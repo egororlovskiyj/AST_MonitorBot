@@ -92,14 +92,13 @@ async def telegram_listener():
 
                 if "message" in upd:
                     msg = upd["message"]
-                    chat_id = msg["chat"]["id"]
                     text = msg.get("text", "")
 
-                    # user command:
+                    # Trigger by "отчет" OR "отчёт"
                     if text.lower() in ["отчет", "отчёт"]:
-    await send_message("Готовлю отчет ⏳...")
-    await run_report()
-    
+                        await send_message("Готовлю отчёт ⏳...")
+                        await run_report()
+
         await asyncio.sleep(1)
 
 
@@ -114,5 +113,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
 
