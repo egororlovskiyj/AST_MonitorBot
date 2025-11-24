@@ -11,11 +11,15 @@ from report import build_report
 from db import init_db, update_cache
 
 
+# ------------------- Telegram Sender -------------------
+
 async def send_message(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     async with aiohttp.ClientSession() as session:
         await session.post(url, data={"chat_id": CHAT_ID, "text": text})
 
+
+# ------------------- Generate report -------------------
 
 async def run_report():
     await init_db()
@@ -36,6 +40,8 @@ async def run_report():
     await send_message(text)
 
 
+# ------------------- Daily Scheduler -------------------
+
 async def scheduler():
     tz = pytz.timezone(TIMEZONE)
     TARGET_HOUR = 21
@@ -43,15 +49,13 @@ async def scheduler():
 
     while True:
         now = datetime.now(tz)
-        target = now.replace(hour=TARGET_HOUR, minute=TARGET_MINUTE, second=0)
+        target = now.replace(hour=TARGET_HOUR, minute=TARGET_MINUTE, second=0, microsecond=0)
 
         if now > target:
             target += timedelta(days=1)
 
-        wait_seconds = (target - now).total_seconds()
         print(f"[scheduler] Next report at: {target}")
-
-        await asyncio.sleep(wait_seconds)
+        await asyncio.sleep((target - now).total_seconds())
 
         try:
             await run_report()
@@ -61,6 +65,53 @@ async def scheduler():
         await asyncio.sleep(60)
 
 
+# ------------------- Command Listener -------------------
+
+async def telegram_listener():
+    print("[telegram] Listener started...")
+    offset = None
+
+    while True:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+
+        params = {"timeout": 20}
+        if offset:
+            params["offset"] = offset
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params) as resp:
+                    data = await resp.json()
+        except:
+            await asyncio.sleep(5)
+            continue
+
+        if "result" in data:
+            for upd in data["result"]:
+                offset = upd["update_id"] + 1
+
+                if "message" in upd:
+                    msg = upd["message"]
+                    chat_id = msg["chat"]["id"]
+                    text = msg.get("text", "")
+
+                    # user command:
+                    if chat_id == int(CHAT_ID) and text.lower() == "отчет":
+                        await send_message("Готовлю отчет ⏳...")
+                        await run_report()
+
+        await asyncio.sleep(1)
+
+
+# ------------------- MAIN -------------------
+
+async def main():
+    await asyncio.gather(
+        scheduler(),
+        telegram_listener()
+    )
+
+
 if __name__ == "__main__":
-    asyncio.run(scheduler())
+    asyncio.run(main())
 
