@@ -1,9 +1,10 @@
 import os
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = int(str(os.getenv("TG_CHAT")).strip())
+CHAT_ID = os.getenv("CHAT_ID")
 DATABASE_URL = os.getenv("DATABASE_URL")
-TIMEZONE = "Europe/Kiev"
+TIMEZONE = os.getenv("TIMEZONE", "Europe/Kyiv")
+
 
 
 
