@@ -10,36 +10,35 @@ cl = Client()
 
 
 def login():
-    if not cl.user_id:
-        try:
-            print("Logging into Instagram...")
-            cl.set_proxy(PROXY)
-            cl.login(IG_USERNAME, IG_PASSWORD)
-            print("Login success!")
-        except ChallengeRequired:
-            print("ChallengeRequired — Instagram blocked login")
-        except LoginRequired:
-            print("LoginRequired — bad login")
-        except Exception as e:
-            print("Login error:", e)
+    try:
+        cl.set_proxy(PROXY)
+        cl.load_settings("session.json")   # ← пробуем загрузить прошлую сессию
+        cl.login(IG_USERNAME, IG_PASSWORD)
+        cl.dump_settings("session.json")   # ← сохраняем новую сессию
+        print("Login OK (session loaded)")
+    except Exception:
+        print("Session not found → logging normally")
+        cl.set_proxy(PROXY)
+        cl.login(IG_USERNAME, IG_PASSWORD)
+        cl.dump_settings("session.json")
+        print("Login saved")
 
 
 async def check_account(username: str):
     try:
         login()
-        cl.set_proxy(PROXY)
 
         user_id = cl.user_id_from_username(username)
         feed = cl.user_medias(user_id, 30)
+
         stories = cl.user_stories(user_id)
-
         has_story = bool(stories)
-
-        reels_today = False
-        posts_today = False
 
         from datetime import datetime
         today = datetime.utcnow().date()
+
+        reels_today = False
+        posts_today = False
 
         for m in feed:
             ts = m.taken_at.date()
@@ -52,6 +51,5 @@ async def check_account(username: str):
         return username, has_story, reels_today, posts_today
 
     except Exception as e:
-        print(f"Error checking {username}: {e}")
+        print("Error:", e)
         return username, False, False, False
-
