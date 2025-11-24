@@ -3,14 +3,14 @@ import os
 from instagrapi import Client
 
 # Instagram credentials (тянуть из Railway ENV)
-IG_USERNAME = os.getenv("IG_USERNAME", "error_dixon")
-IG_PASSWORD = os.getenv("IG_PASSWORD", "1226Egor!")
+IG_USERNAME = os.getenv("IG_USERNAME", "nordic_smm_egor")
+IG_PASSWORD = os.getenv("IG_PASSWORD", "ASTalent25!")
 
 # Proxy settings (SOCKS5)
 PROXY_HOST = os.getenv("PROXY_HOST", "5y7uqt2ob5.cn.fxdx.in")
 PROXY_PORT = os.getenv("PROXY_PORT", "15469")
 PROXY_USER = os.getenv("PROXY_USER", "originalharmony271109")
-PROXY_PASS = os.getenv("PROXY_PASS", "eWvTse")
+PROXY_PASS = os.getenv("PROXY_PASS", "eWvTseqkohn5")
 
 PROXY_URL = f"socks5://{PROXY_USER}:{PROXY_PASS}@{PROXY_HOST}:{PROXY_PORT}"
 
