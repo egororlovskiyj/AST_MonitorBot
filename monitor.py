@@ -3,8 +3,8 @@ from instagrapi import Client
 from instagrapi.exceptions import LoginRequired, ChallengeRequired
 from proxy_config import PROXY
 
-IG_USERNAME = "error_dixon"
-IG_PASSWORD = "1226"
+IG_USERNAME = "nordic_smm_egor"
+IG_PASSWORD = "ASTalent25!"
 
 cl = Client()
 
@@ -54,3 +54,4 @@ async def check_account(username: str):
     except Exception as e:
         print(f"Error checking {username}: {e}")
         return username, False, False, False
+
