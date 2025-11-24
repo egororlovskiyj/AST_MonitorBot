@@ -1,5 +1,4 @@
-# monitor.py
-from datetime import datetime
+import asyncio
 from instagrapi import Client
 from instagrapi.exceptions import LoginRequired, ChallengeRequired
 from proxy_config import PROXY
@@ -11,7 +10,6 @@ cl = Client()
 
 
 def login():
-    """Выполняем единоразовый вход в Instagram"""
     if not cl.user_id:
         try:
             print("Logging into Instagram...")
@@ -26,30 +24,26 @@ def login():
             print("Login error:", e)
 
 
-def check_account(username: str):
-    """
-    Синхронная проверка аккаунта.
-    Возвращает: (username, has_story, reels_today, posts_today)
-    """
+async def check_account(username: str):
     try:
         login()
         cl.set_proxy(PROXY)
 
         user_id = cl.user_id_from_username(username)
-
-        # --- stories ---
-        has_story = bool(cl.user_stories(user_id))
-
-        # --- posts + reels ---
         feed = cl.user_medias(user_id, 30)
+        stories = cl.user_stories(user_id)
+
+        has_story = bool(stories)
 
         reels_today = False
         posts_today = False
 
+        from datetime import datetime
         today = datetime.utcnow().date()
 
         for m in feed:
-            if m.taken_at.date() == today:
+            ts = m.taken_at.date()
+            if ts == today:
                 if m.media_type == 2:
                     reels_today = True
                 else:
@@ -58,6 +52,5 @@ def check_account(username: str):
         return username, has_story, reels_today, posts_today
 
     except Exception as e:
-        print(f"[ERROR] {username}: {e}")
+        print(f"Error checking {username}: {e}")
         return username, False, False, False
-
