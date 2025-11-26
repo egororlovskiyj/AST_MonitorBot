@@ -2,7 +2,7 @@ import os
 
 # Telegram
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = int(os.getenv("CHAT_ID"))  # id чата/канала с отчётами
+CHAT_ID = int(os.getenv("CHAT_ID"))
 
 # База данных (Postgres на Railway)
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -16,6 +16,7 @@ RAPIDAPI_HOST = os.getenv(
     "RAPIDAPI_HOST",
     "instagram-scraper-stable-api.p.rapidapi.com"
 )
+
 
 
 
