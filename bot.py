@@ -91,7 +91,6 @@ async def scheduler():
         except Exception as e:
             print("ERROR while run_report:", e)
 
-        # чтобы второй раз случайно сразу не запустилось
         await asyncio.sleep(60)
 
 
@@ -126,8 +125,9 @@ async def telegram_listener():
                     chat_id = msg["chat"]["id"]
                     text = msg.get("text", "")
 
-                    if chat_id == CHAT_ID and text:
+                    if text:
                         lower = text.lower().strip()
+                        print(f"[telegram] got message from {chat_id}: {lower}")
 
                         if lower in ("отчет", "отчёт", "/report", "report"):
                             await send_message("Готовлю отчёт ⏳...")
