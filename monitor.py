@@ -2,7 +2,6 @@ import aiohttp
 from datetime import datetime
 from config import RAPIDAPI_KEY, RAPIDAPI_HOST
 
-# Базовый URL RapidAPI
 BASE_URL = "https://instagram-scraper-stable-api.p.rapidapi.com"
 
 HEADERS = {
@@ -13,7 +12,7 @@ HEADERS = {
 
 async def fetch(endpoint: str, payload: dict):
     """
-    Универсальный запрос к Instagram Scraper Stable API.
+    Универсальный POST-запрос к Instagram Scraper Stable API.
     endpoint: например "/posts" или "/stories".
     """
     url = BASE_URL + endpoint
@@ -36,11 +35,12 @@ async def check_account(username: str):
     (username, has_story, reels_today, photo_today)
     """
 
-    # ----------- 1) STORIES -----------
+    # -------- 1) STORIES --------
     stories_json = await fetch("/stories", {"username": username})
     has_story = False
 
     if stories_json:
+        # В разных версиях АПИ массив может называться data / items
         items = (
             stories_json.get("data")
             or stories_json.get("items")
@@ -48,7 +48,7 @@ async def check_account(username: str):
         )
         has_story = len(items) > 0
 
-    # ----------- 2) POSTS / REELS -----------
+    # -------- 2) POSTS / REELS --------
     posts_json = await fetch("/posts", {"username": username, "count": 20})
 
     reels_today = False
@@ -68,23 +68,21 @@ async def check_account(username: str):
             if not ts:
                 continue
 
-            # Обрабатываем Unix timestamp или ISO-строку
+            # unix / iso
             try:
                 if isinstance(ts, (int, float)):
                     dt = datetime.utcfromtimestamp(ts)
                 else:
-                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
             except Exception:
                 continue
 
             if dt.date() != today:
                 continue
 
-            # Определяем тип медиа
             is_video = bool(item.get("is_video"))
             media_type = str(item.get("media_type") or "").lower()
 
-            # reels = видео
             if "reel" in media_type or is_video:
                 reels_today = True
             else:
@@ -93,6 +91,6 @@ async def check_account(username: str):
     return username, has_story, reels_today, photo_today
 
 
-# Поддержка старого интерфейса monitor_user()
-async def monitor_user(username):
+# Старый интерфейс, если где-то ещё вызывается monitor_user
+async def monitor_user(username: str):
     return await check_account(username)
