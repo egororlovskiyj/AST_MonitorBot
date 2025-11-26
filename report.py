@@ -1,33 +1,54 @@
-from datetime import datetime
-from config import TIMEZONE
-import pytz
+def build_report(results: dict) -> str:
+    """
+    results = {
+        "Finland": [
+            (username, has_story, reels, photo),
+            ...
+        ],
+        ...
+    }
+    """
+    lines = []
+    lines.append("📊 Daily IG Report — 21:00 (GMT+2)")
 
-def build_report(results):
-    tz = pytz.timezone(TIMEZONE)
-    now = datetime.now(tz).strftime("%H:%M")
-    out = f"📊 Daily IG Report — {now} (GMT+2)\n\n"
+    flag_by_country = {
+        "Finland": "🇫🇮",
+        "Sweden": "🇸🇪",
+        "Norway": "🇳🇴",
+        "Denmark": "🇩🇰",
+        "Iceland": "🇮🇸",
+    }
 
-    for country, accounts in results.items():
-        flag = {
-            "Finland": "🇫🇮",
-            "Denmark": "🇩🇰",
-            "Norway": "🇳🇴",
-            "Sweden": "🇸🇪"
-        }.get(country, "")
+    for country, items in results.items():
+        flag = flag_by_country.get(country, "🌍")
+        lines.append("")
+        lines.append(f"{flag} {country}:")
 
-        out += f"{flag} {country}:\n"
+        for username, has_story, reels, photo in items:
+            parts = []
 
-        for row in accounts:
-            user, story, reels, post = row
-            if story or reels or post:
-                out += f"{user} — "
-                if story: out += "✔️ stories "
-                if reels: out += "| ✔️ reels "
-                if post: out += "| ✔️ photo "
-                out += "\n"
-            else:
-                out += f"{user} — ❌ no content\n"
+            # логика крестиков / галочек как у тебя в отчёте
+            if reels:
+                parts.append("✅ reels")
+            if photo:
+                parts.append("✅ photo")
 
-        out += "\n"
+            if not reels and not photo:
+                parts.append("❌ no content")
 
-    return out
+            line = f"{username} — " + " | ".join(parts)
+            lines.append(line)
+
+    return "\n".join(lines)
+
+
+def build_inactive_alert(usernames, days: int = 3) -> str:
+    if not usernames:
+        return ""
+
+    lines = ["⚠️ Внимание! Без контента последние "
+             f"{days} дня:"]
+    for u in usernames:
+        lines.append(f"• {u}")
+    return "\n".join(lines)
+
