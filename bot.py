@@ -8,33 +8,16 @@ import pytz
 from config import BOT_TOKEN, CHAT_ID, TIMEZONE
 from monitor import check_account
 from report import build_report, build_inactive_alert
-from db import init_db, save_result, get_inactive_users
+from db import init_db, save_activity, save_followers, get_followers_diff, get_inactive_users
 
 
-# ------------- Telegram helper -------------
-
-async def send_message(text: str):
-    if not text:
-        return
-
+async def send_message(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     async with aiohttp.ClientSession() as session:
-        await session.post(
-            url,
-            data={"chat_id": CHAT_ID, "text": text},
-        )
+        await session.post(url, data={"chat_id": CHAT_ID, "text": text})
 
-
-# ------------- Основной отчёт -------------
 
 async def run_report():
-    """
-    1) Читает accounts.json
-    2) Проверяет всех юзеров через Instagram Scraper Stable API
-    3) Сохраняет результаты в БД
-    4) Шлёт классический отчёт
-    5) Шлёт отдельное уведомление, если кто-то 3 дня без контента
-    """
     await init_db()
 
     with open("accounts.json", "r", encoding="utf-8") as f:
@@ -42,27 +25,29 @@ async def run_report():
 
     results = {}
 
-    # --- проверка всех аккаунтов ---
-    for country, lst in accounts.items():
+    for country, users in accounts.items():
         results[country] = []
 
-        for username in lst:
-            username, has_story, reels, photo = await check_account(username)
-            await save_result(username, has_story, reels, photo)
-            results[country].append((username, has_story, reels, photo))
+        for username in users:
+            u, story, reels, photo, status, followers = await check_account(username)
 
-    # --- обычный отчёт ---
-    text = build_report(results)
-    await send_message(text)
+            await save_activity(u, story, reels, photo, status)
+            await save_followers(u, followers)
 
-    # --- алерт по 3 дням без контента ---
-    inactive = await get_inactive_users(days=3)
-    alert_text = build_inactive_alert(inactive, days=3)
-    if alert_text:
-        await send_message(alert_text)
+            diff = await get_followers_diff(u)
 
+            results[country].append(
+                (u, story, reels, photo, status, diff)
+            )
 
-# ------------- Планировщик на 21:00 -------------
+    report = build_report(results)
+    await send_message(report)
+
+    bad = await get_inactive_users(days=3)
+    alert = build_inactive_alert(bad)
+    if alert:
+        await send_message(alert)
+
 
 async def scheduler():
     tz = pytz.timezone(TIMEZONE)
@@ -71,50 +56,35 @@ async def scheduler():
 
     while True:
         now = datetime.now(tz)
-        target = now.replace(
-            hour=TARGET_HOUR,
-            minute=TARGET_MINUTE,
-            second=0,
-            microsecond=0,
-        )
+        target = now.replace(hour=TARGET_HOUR, minute=TARGET_MINUTE, second=0)
 
         if now > target:
             target += timedelta(days=1)
 
-        wait_seconds = (target - now).total_seconds()
-        print(f"[scheduler] Next report at: {target}")
-
-        await asyncio.sleep(wait_seconds)
-
+        await asyncio.sleep((target - now).total_seconds())
         try:
             await run_report()
         except Exception as e:
-            print("ERROR while run_report:", e)
+            print("ERROR:", e)
 
         await asyncio.sleep(60)
 
 
-# ------------- Listener команд в Telegram -------------
-
-async def telegram_listener():
-    print("[telegram] Listener started...")
+async def listener():
     offset = None
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
 
     while True:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
-
-        params = {"timeout": 20}
+        params = {"timeout": 25}
         if offset:
             params["offset"] = offset
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params) as resp:
-                    data = await resp.json()
-        except Exception as e:
-            print("[telegram] error:", e)
-            await asyncio.sleep(5)
-            continue
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.get(url, params=params) as r:
+                    data = await r.json()
+            except:
+                await asyncio.sleep(3); continue
 
         if "result" in data:
             for upd in data["result"]:
@@ -125,28 +95,15 @@ async def telegram_listener():
                     chat_id = msg["chat"]["id"]
                     text = msg.get("text", "")
 
-                    if text:
-                        lower = text.lower().strip()
-                        print(f"[telegram] got message from {chat_id}: {lower}")
-
-                        if lower in ("отчет", "отчёт", "/report", "report"):
-                            await send_message("Готовлю отчёт ⏳...")
-                            try:
-                                await run_report()
-                            except Exception as e:
-                                print("ERROR manual run_report:", e)
-                                await send_message("Ошибка при формировании отчёта 😔")
+                    if text and text.lower().strip() in ("отчет", "отчёт", "report", "/report"):
+                        await send_message("Готовлю отчёт…")
+                        await run_report()
 
         await asyncio.sleep(1)
 
 
-# ------------- MAIN -------------
-
 async def main():
-    await asyncio.gather(
-        scheduler(),
-        telegram_listener()
-    )
+    await asyncio.gather(scheduler(), listener())
 
 
 if __name__ == "__main__":
