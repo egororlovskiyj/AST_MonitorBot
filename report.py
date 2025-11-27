@@ -1,54 +1,38 @@
-def build_report(results: dict) -> str:
-    """
-    results = {
-        "Finland": [
-            (username, has_story, reels, photo),
-            ...
-        ],
-        ...
-    }
-    """
+def build_report(results):
     lines = []
-    lines.append("📊 Daily IG Report — 21:00 (GMT+2)")
+    lines.append("📊 Daily IG Report")
 
-    flag_by_country = {
-        "Finland": "🇫🇮",
-        "Sweden": "🇸🇪",
-        "Norway": "🇳🇴",
-        "Denmark": "🇩🇰",
-        "Iceland": "🇮🇸",
-    }
-
-    for country, items in results.items():
-        flag = flag_by_country.get(country, "🌍")
+    for country, users in results.items():
         lines.append("")
-        lines.append(f"{flag} {country}:")
+        lines.append(f"🌍 {country}:")
+        for u in users:
+            username, story, reels, photo, status, diff = u
 
-        for username, has_story, reels, photo in items:
             parts = []
+            if reels: parts.append("🎥 reels")
+            if photo: parts.append("📸 post")
+            if story: parts.append("🟢 story")
+            if not (story or reels or photo): parts.append("❌ no content")
 
-            # логика крестиков / галочек как у тебя в отчёте
-            if reels:
-                parts.append("✅ reels")
-            if photo:
-                parts.append("✅ photo")
+            if diff is not None:
+                if diff > 0:
+                    parts.append(f"📈 +{diff}")
+                elif diff < 0:
+                    parts.append(f"📉 {diff}")
 
-            if not reels and not photo:
-                parts.append("❌ no content")
+            if status != "OK":
+                parts.append(f"⚠️ {status}")
 
-            line = f"{username} — " + " | ".join(parts)
-            lines.append(line)
+            lines.append(f"{username} — " + " | ".join(parts))
 
     return "\n".join(lines)
 
 
-def build_inactive_alert(usernames, days: int = 3) -> str:
-    if not usernames:
+def build_inactive_alert(users, days=3):
+    if not users:
         return ""
-
-    lines = ["⚠️ Внимание! Без контента последние "
-             f"{days} дня:"]
-    for u in usernames:
-        lines.append(f"• {u}")
-    return "\n".join(lines)
+    text = f"⚠️ {days} days without content:\n"
+    for u in users:
+        text += f"• {u}\n"
+    return text
 
