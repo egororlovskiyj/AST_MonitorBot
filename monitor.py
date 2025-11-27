@@ -1,96 +1,85 @@
+import os
 import aiohttp
-from datetime import datetime
-from config import RAPIDAPI_KEY, RAPIDAPI_HOST
+import asyncio
+from datetime import datetime, timezone
 
-BASE_URL = "https://instagram-scraper-stable-api.p.rapidapi.com"
+RAPID_KEY = os.getenv("RAPIDAPI_KEY")
+RAPID_HOST = os.getenv("RAPIDAPI_HOST")
 
 HEADERS = {
-    "X-RapidAPI-Key": RAPIDAPI_KEY,
-    "X-RapidAPI-Host": RAPIDAPI_HOST,
+    "x-rapidapi-key": RAPID_KEY,
+    "x-rapidapi-host": RAPID_HOST,
+    "content-type": "application/json"
 }
 
 
-async def fetch(endpoint: str, payload: dict):
-    """
-    Универсальный POST-запрос к Instagram Scraper Stable API.
-    endpoint: например "/posts" или "/stories".
-    """
-    url = BASE_URL + endpoint
+async def call_api(endpoint, payload=None):
+    url = f"https://{RAPID_HOST}/{endpoint}"
+    await asyncio.sleep(0.4)  # анти-429 throttle
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession() as s:
         try:
-            async with session.post(url, json=payload, headers=HEADERS) as resp:
-                if resp.status != 200:
-                    print(f"[ERROR] {endpoint} — HTTP {resp.status}")
+            async with s.post(url, json=payload or {}, headers=HEADERS) as r:
+                if r.status != 200:
+                    print(f"[API ERROR] {endpoint} HTTP {r.status}")
                     return None
-                return await resp.json()
+                return await r.json()
         except Exception as e:
-            print(f"[ERROR] Exception in {endpoint}: {e}")
+            print("API exception:", e)
             return None
 
 
-async def check_account(username: str):
-    """
-    Возвращает:
-    (username, has_story, reels_today, photo_today)
-    """
+async def get_user_info(username):
+    return await call_api("get_user_info", {"username": username})
 
-    # -------- 1) STORIES --------
-    stories_json = await fetch("/stories", {"username": username})
-    has_story = False
 
-    if stories_json:
-        # В разных версиях АПИ массив может называться data / items
-        items = (
-            stories_json.get("data")
-            or stories_json.get("items")
-            or []
-        )
-        has_story = len(items) > 0
+async def get_user_posts(username):
+    return await call_api("user_posts.php", {"username": username})
 
-    # -------- 2) POSTS / REELS --------
-    posts_json = await fetch("/posts", {"username": username, "count": 20})
 
+async def get_user_stories(username):
+    return await call_api("user_stories.php", {"username": username})
+
+
+async def check_account(username):
+    # info → followers + ban status
+    info = await get_user_info(username)
+    if not info:
+        return username, False, False, False, "blocked", None
+
+    followers = info.get("follower_count", 0)
+    is_private = info.get("is_private", False)
+    is_blocked = info.get("is_blocked", False)
+    status = "OK"
+
+    if is_blocked or is_private:
+        status = "restricted"
+
+    # stories
+    stories_json = await get_user_stories(username)
+    has_story = bool(stories_json and stories_json.get("stories"))
+
+    # posts / reels
+    posts_json = await get_user_posts(username)
     reels_today = False
     photo_today = False
 
-    if posts_json:
-        items = posts_json.get("data") or posts_json.get("items") or []
-        today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).date()
 
-        for item in items:
-            ts = (
-                item.get("taken_at")
-                or item.get("timestamp")
-                or item.get("taken_at_timestamp")
-            )
-
+    if posts_json and "items" in posts_json:
+        for item in posts_json["items"]:
+            ts = item.get("taken_at")
             if not ts:
                 continue
 
-            # unix / iso
-            try:
-                if isinstance(ts, (int, float)):
-                    dt = datetime.utcfromtimestamp(ts)
-                else:
-                    dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
-            except Exception:
+            dt = datetime.fromtimestamp(int(ts), tz=timezone.utc).date()
+            if dt != today:
                 continue
 
-            if dt.date() != today:
-                continue
-
-            is_video = bool(item.get("is_video"))
-            media_type = str(item.get("media_type") or "").lower()
-
-            if "reel" in media_type or is_video:
+            if item.get("media_type") == 2:
                 reels_today = True
             else:
                 photo_today = True
 
-    return username, has_story, reels_today, photo_today
+    return username, has_story, reels_today, photo_today, status, followers
 
-
-# Старый интерфейс, если где-то ещё вызывается monitor_user
-async def monitor_user(username: str):
-    return await check_account(username)
