@@ -1,7 +1,6 @@
 import asyncpg
-from datetime import datetime, timedelta
+from datetime import datetime
 import pytz
-
 from config import DATABASE_URL, TIMEZONE
 
 _pool = None
@@ -17,24 +16,35 @@ async def get_pool():
 async def init_db():
     pool = await get_pool()
     async with pool.acquire() as conn:
+        # контент за день
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS activity (
-                username   TEXT NOT NULL,
-                day        DATE NOT NULL,
-                has_story  BOOLEAN,
-                has_reels  BOOLEAN,
-                has_photo  BOOLEAN,
+                username TEXT NOT NULL,
+                day DATE NOT NULL,
+                has_story BOOLEAN,
+                has_reels BOOLEAN,
+                has_photo BOOLEAN,
+                status TEXT,
+                PRIMARY KEY (username, day)
+            );
+            """
+        )
+
+        # динамика подписчиков
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS followers (
+                username TEXT NOT NULL,
+                day DATE NOT NULL,
+                followers INTEGER,
                 PRIMARY KEY (username, day)
             );
             """
         )
 
 
-async def save_result(username: str, has_story: bool, has_reels: bool, has_photo: bool):
-    """
-    Сохраняем результат за сегодня для пользователя (upsert).
-    """
+async def save_activity(username, story, reels, photo, status):
     pool = await get_pool()
     tz = pytz.timezone(TIMEZONE)
     day = datetime.now(tz).date()
@@ -42,64 +52,71 @@ async def save_result(username: str, has_story: bool, has_reels: bool, has_photo
     async with pool.acquire() as conn:
         await conn.execute(
             """
-            INSERT INTO activity (username, day, has_story, has_reels, has_photo)
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (username, day)
+            INSERT INTO activity(username, day, has_story, has_reels, has_photo, status)
+            VALUES ($1,$2,$3,$4,$5,$6)
+            ON CONFLICT(username, day)
             DO UPDATE SET
                 has_story = EXCLUDED.has_story,
                 has_reels = EXCLUDED.has_reels,
-                has_photo = EXCLUDED.has_photo;
+                has_photo = EXCLUDED.has_photo,
+                status = EXCLUDED.status;
             """,
-            username,
-            day,
-            has_story,
-            has_reels,
-            has_photo,
+            username, day, story, reels, photo, status
         )
 
 
-async def get_inactive_users(days: int = 3):
-    """
-    Возвращает список username, у которых N дней подряд нет контента
-    (нет сторис, нет рилсов, нет фото).
-    Мы смотрим последние N календарных дней.
-    """
+async def save_followers(username, followers):
     pool = await get_pool()
     tz = pytz.timezone(TIMEZONE)
-    today = datetime.now(tz).date()
-    from_day = today - timedelta(days=days - 1)
+    day = datetime.now(tz).date()
 
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO followers(username, day, followers)
+            VALUES ($1,$2,$3)
+            ON CONFLICT(username, day)
+            DO UPDATE SET
+                followers = EXCLUDED.followers;
+            """,
+            username, day, followers
+        )
+
+
+async def get_followers_diff(username):
+    pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT username,
-                   COUNT(*) AS cnt,
-                   SUM(
-                       CASE
-                           WHEN (COALESCE(has_story,false)
-                                 OR COALESCE(has_reels,false)
-                                 OR COALESCE(has_photo,false))
-                           THEN 1 ELSE 0
-                       END
-                   ) AS active_days
-            FROM activity
-            WHERE day >= $1 AND day <= $2
-            GROUP BY username
-            HAVING COUNT(*) >= $3
-               AND SUM(
-                       CASE
-                           WHEN (COALESCE(has_story,false)
-                                 OR COALESCE(has_reels,false)
-                                 OR COALESCE(has_photo,false))
-                           THEN 1 ELSE 0
-                       END
-                   ) = 0;
+            SELECT day, followers
+            FROM followers
+            WHERE username = $1
+            ORDER BY day DESC
+            LIMIT 2;
             """,
-            from_day,
-            today,
-            days,
+            username
         )
 
-    return [r["username"] for r in rows]
+    if len(rows) < 2:
+        return None
 
+    return rows[0]["followers"] - rows[1]["followers"]
+
+
+async def get_inactive_users(days=3):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT username
+            FROM activity
+            GROUP BY username
+            HAVING SUM(
+                CASE WHEN has_story OR has_reels OR has_photo THEN 1 ELSE 0 END
+            ) = 0
+            AND COUNT(*) >= $1;
+            """,
+            days
+        )
+    return [r["username"] for r in rows]
 
