@@ -62,24 +62,13 @@ async def check_account(username):
     # posts / reels
     posts_json = await get_user_posts(username)
     reels_today = False
-    photo_today = False
+    photo_today = False# monitor.py
+from instagram_checker import check_account
 
-    today = datetime.now(timezone.utc).date()
+# Файл-обёртка, оставляем просто для совместимости.
 
-    if posts_json and "items" in posts_json:
-        for item in posts_json["items"]:
-            ts = item.get("taken_at")
-            if not ts:
-                continue
 
-            dt = datetime.fromtimestamp(int(ts), tz=timezone.utc).date()
-            if dt != today:
-                continue
+async def monitor_user(username: str):
+    return await check_account(username)
 
-            if item.get("media_type") == 2:
-                reels_today = True
-            else:
-                photo_today = True
-
-    return username, has_story, reels_today, photo_today, status, followers
 
