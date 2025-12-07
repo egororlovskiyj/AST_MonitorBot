@@ -1,122 +1,137 @@
+# db.py
+import datetime as dt
 import asyncpg
-from datetime import datetime
-import pytz
-from config import DATABASE_URL, TIMEZONE
 
-_pool = None
+from config import DATABASE_URL
+
+_pool: asyncpg.Pool | None = None
 
 
-async def get_pool():
+async def get_pool() -> asyncpg.Pool:
     global _pool
     if _pool is None:
-        _pool = await asyncpg.create_pool(DATABASE_URL)
+        _pool = await asyncpg.create_pool(DATABASE_URL, max_size=5)
     return _pool
 
 
 async def init_db():
     pool = await get_pool()
     async with pool.acquire() as conn:
-        # контент за день
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS activity (
+                id SERIAL PRIMARY KEY,
                 username TEXT NOT NULL,
-                day DATE NOT NULL,
-                has_story BOOLEAN,
-                has_reels BOOLEAN,
-                has_photo BOOLEAN,
-                status TEXT,
-                PRIMARY KEY (username, day)
-            );
-            """
-        )
-
-        # динамика подписчиков
-        await conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS followers (
-                username TEXT NOT NULL,
-                day DATE NOT NULL,
+                ts TIMESTAMPTZ NOT NULL,
+                story BOOLEAN,
+                reels BOOLEAN,
+                photo BOOLEAN,
                 followers INTEGER,
-                PRIMARY KEY (username, day)
+                banned BOOLEAN,
+                error TEXT
             );
             """
         )
 
+        # индексы
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_activity_username_ts ON activity(username, ts DESC);"
+        )
 
-async def save_activity(username, story, reels, photo, status):
+
+async def save_result(
+    username: str,
+    has_story: bool,
+    has_reels: bool,
+    has_photo: bool,
+    followers: int | None,
+    banned: bool,
+    error: str | None,
+):
     pool = await get_pool()
-    tz = pytz.timezone(TIMEZONE)
-    day = datetime.now(tz).date()
-
     async with pool.acquire() as conn:
         await conn.execute(
             """
-            INSERT INTO activity(username, day, has_story, has_reels, has_photo, status)
-            VALUES ($1,$2,$3,$4,$5,$6)
-            ON CONFLICT(username, day)
-            DO UPDATE SET
-                has_story = EXCLUDED.has_story,
-                has_reels = EXCLUDED.has_reels,
-                has_photo = EXCLUDED.has_photo,
-                status = EXCLUDED.status;
+            INSERT INTO activity (username, ts, story, reels, photo, followers, banned, error)
+            VALUES ($1, NOW(), $2, $3, $4, $5, $6, $7);
             """,
-            username, day, story, reels, photo, status
+            username,
+            has_story,
+            has_reels,
+            has_photo,
+            followers,
+            banned,
+            error,
         )
 
 
-async def save_followers(username, followers):
-    pool = await get_pool()
-    tz = pytz.timezone(TIMEZONE)
-    day = datetime.now(tz).date()
-
-    async with pool.acquire() as conn:
-        await conn.execute(
-            """
-            INSERT INTO followers(username, day, followers)
-            VALUES ($1,$2,$3)
-            ON CONFLICT(username, day)
-            DO UPDATE SET
-                followers = EXCLUDED.followers;
-            """,
-            username, day, followers
-        )
-
-
-async def get_followers_diff(username):
+async def get_prev_followers(username: str) -> int | None:
+    """Последнее значение followers до сегодняшнего дня."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
+        row = await conn.fetchrow(
             """
-            SELECT day, followers
-            FROM followers
-            WHERE username = $1
-            ORDER BY day DESC
-            LIMIT 2;
-            """,
-            username
-        )
-
-    if len(rows) < 2:
-        return None
-
-    return rows[0]["followers"] - rows[1]["followers"]
-
-
-async def get_inactive_users(days=3):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT username
+            SELECT followers
             FROM activity
-            GROUP BY username
-            HAVING SUM(
-                CASE WHEN has_story OR has_reels OR has_photo THEN 1 ELSE 0 END
-            ) = 0
-            AND COUNT(*) >= $1;
+            WHERE username = $1
+              AND followers IS NOT NULL
+            ORDER BY ts DESC
+            LIMIT 1;
             """,
-            days
+            username,
         )
-    return [r["username"] for r in rows]
+    if row:
+        return row["followers"]
+    return None
 
+
+async def get_inactive_users(days: int = 3) -> list[str]:
+    """
+    Юзеры, у которых N дней подряд НЕ было ни сторис, ни рилсов, ни фоток.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        since = dt.datetime.utcnow() - dt.timedelta(days=days)
+        rows = await conn.fetch(
+            """
+            SELECT username, ts, story, reels, photo
+            FROM activity
+            WHERE ts >= $1;
+            """,
+            since,
+        )
+
+    per_user: dict[str, list[tuple[dt.datetime, bool]]] = {}
+    for r in rows:
+        u = r["username"]
+        has_any = bool(r["story"] or r["reels"] or r["photo"])
+        per_user.setdefault(u, []).append((r["ts"], has_any))
+
+    inactive = []
+    for u, entries in per_user.items():
+        # берём последние N записей (по времени)
+        entries.sort(key=lambda x: x[0], reverse=True)
+        last = entries[:days]
+        if len(last) < days:
+            continue
+        if all(not has for _, has in last):
+            inactive.append(u)
+
+    return inactive
+
+
+async def get_last_status(username: str):
+    """Последняя запись по юзеру — пригодится, если захочешь потом расширять."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT *
+            FROM activity
+            WHERE username = $1
+            ORDER BY ts DESC
+            LIMIT 1;
+            """,
+            username,
+        )
+    return row
