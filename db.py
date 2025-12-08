@@ -8,9 +8,15 @@ _pool: asyncpg.Pool | None = None
 
 
 async def get_pool() -> asyncpg.Pool:
+    """Создаём и возвращаем общий пул подключений к БД."""
     global _pool
     if _pool is None:
-        _pool = await asyncpg.create_pool(DATABASE_URL, max_size=5)
+        # ВАЖНО: min_size <= max_size, иначе asyncpg ругается
+        _pool = await asyncpg.create_pool(
+            DATABASE_URL,
+            min_size=1,
+            max_size=5,
+        )
     return _pool
 
 
@@ -135,3 +141,4 @@ async def get_last_status(username: str):
             username,
         )
     return row
+
