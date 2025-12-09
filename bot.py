@@ -6,12 +6,14 @@ from datetime import datetime, timedelta
 import aiohttp
 import pytz
 
-from config import BOT_TOKEN, CHAT_ID, TIMEZONE
+from config import BOT_TOKEN, CHAT_ID
 from monitor import monitor_user
 from report import build_report, build_inactive_alert
 from db import init_db, save_result, get_prev_followers, get_inactive_users
 
-TZ = pytz.timezone(TIMEZONE)
+from datetime import datetime, timedelta
+
+from config import REPORT_TZ_OFFSET, REPORT_HOUR
 
 
 # ---------- Telegram helper ----------
@@ -195,3 +197,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
