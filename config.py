@@ -1,29 +1,20 @@
 # config.py
 import os
 
+# Telegram
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = int(os.getenv("CHAT_ID", "0"))
+CHAT_ID = os.getenv("CHAT_ID")  # id канала/чата для авто-отчётов
 
+# Database
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+# RapidAPI
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 RAPIDAPI_HOST = os.getenv("RAPIDAPI_HOST", "instagram-scraper-stable-api.p.rapidapi.com")
 
-# Базовый URL API
-RAPIDAPI_BASE_URL = f"https://{RAPIDAPI_HOST}"
-
-# Эндпоинты — проверь по RapidAPI и при необходимости поправь пути:
-IG_USER_POSTS_PATH = "/get_ig_user_posts.php"
-IG_USER_REELS_PATH = "/get_ig_user_reels.php"
-IG_USER_STORIES_PATH = "/get_ig_user_stories.php"
-IG_USER_INFO_PATH = "/ig_get_profile_data.php"   # ПРОВЕРЬ в доке, как у них называется профильный эндпоинт
-
-# Часовой пояс для «сегодня» (Финляндия)
-TIMEZONE = "Europe/Helsinki"
-
-# Сколько часов считать «сегодняшним контентом»
-HOURS_WINDOW = 24
-
+# Часовой пояс для отчёта (по умолчанию твой GMT+2)
+REPORT_TZ_OFFSET = 2  # часы
+REPORT_HOUR = 21      # во сколько делать авто-отчёт
 
 
 
