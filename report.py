@@ -1,72 +1,66 @@
 # report.py
+from typing import Dict, List
 
-from typing import Dict, List, Any
+from instagram_checker import CheckResult
 
 
-def _line_for_user(info: dict) -> str:
-    """
-    info:
-      username, story, reels, photo, followers, diff, banned, error
-    """
-    username = info["username"]
-    has_story = info["story"]
-    has_reels = info["reels"]
-    has_photo = info["photo"]
-    followers = info.get("followers")
-    diff = info.get("followers_diff")
-    banned = info.get("banned")
-    error = info.get("error")
+def _format_line(res: CheckResult) -> str:
+    if res.banned:
+        return f"{res.username} — 🚫 нет доступа (возможно бан/приват)"
 
-    if banned:
-        base = f"{username} — 🚫 нет доступа (возможно бан/приват)"
-    elif error:
-        base = f"{username} — ⚠️ ошибка: {error}"
+    # если рейтлимит / любая ошибка
+    errors = []
+    if res.error_posts:
+        errors.append(f"posts:{res.error_posts}")
+    if res.error_reels:
+        errors.append(f"reels:{res.error_reels}")
+    if res.error_stories:
+        errors.append(f"stories:{res.error_stories}")
+
+    if errors:
+        return f"{res.username} — ⚠️ ошибка: " + "; ".join(errors)
+
+    # нормальное состояние
+    parts = []
+    if res.has_photo:
+        parts.append("посты ✅")
     else:
-        if not (has_story or has_reels or has_photo):
-            base = f"{username} — ❌ no content"
-        else:
-            parts = []
-            parts.append("✅ story" if has_story else "✖ story")
-            parts.append("✅ reels" if has_reels else "✖ reels")
-            parts.append("✅ photo" if has_photo else "✖ photo")
-            base = f"{username} — " + " | ".join(parts)
+        parts.append("посты — нет")
 
-    # Фолловеры
-    if followers is not None:
-        if diff is None or diff == 0:
-            base += f" | 👥 {followers}"
-        else:
-            sign = "📈" if diff > 0 else "📉"
-            base += f" | 👥 {followers} ({'+' if diff>0 else ''}{diff}) {sign}"
+    if res.has_reels:
+        parts.append("reels ✅")
+    else:
+        parts.append("reels — нет")
 
-    return base
+    if res.has_story:
+        parts.append("сториз ✅")
+    else:
+        parts.append("сториз — нет")
+
+    return f"{res.username} — " + ", ".join(parts)
 
 
-def build_report(results: Dict[str, List[dict]]) -> str:
+def build_daily_report(results_by_country: Dict[str, List[CheckResult]]) -> str:
     """
-    results: { "Finland": [ {...}, {...} ], "Sweden": [...] }
+    Собираем финальный текст отчёта.
+    results_by_country = { "Finland": [CheckResult, ...], "Denmark": [...] }
     """
-    lines = []
-    lines.append("📊 Daily IG Report — 21:00 (GMT+2)\n")
+    lines: list[str] = []
+    lines.append("📊 Daily IG Report")
 
-    for country, items in results.items():
-        lines.append(f"🇫🇮 {country}:")  # можешь потом заменить флаг под страну
-        if not items:
-            lines.append("  нет аккаунтов")
-            continue
+    # можно добавить время, если хочешь – сейчас бот у тебя сам его пишет.
 
-        for info in items:
-            lines.append(_line_for_user(info))
-        lines.append("")  # пустая строка между странами
+    for country, items in results_by_country.items():
+        if country.lower().startswith("fin"):
+            flag = "🇫🇮"
+        elif country.lower().startswith("den"):
+            flag = "🇩🇰"
+        else:
+            flag = "🌍"
 
-    return "\n".join(lines).strip()
+        lines.append("")
+        lines.append(f"{flag} {country}:")
+        for res in items:
+            lines.append(_format_line(res))
 
-
-def build_inactive_alert(usernames: list[str], days: int = 3) -> str | None:
-    if not usernames:
-        return None
-    lines = []
-    lines.append(f"⚠️ {days} дня подряд без контента:")
-    for u in usernames:
-        lines.append(f"• {u}")
     return "\n".join(lines)
