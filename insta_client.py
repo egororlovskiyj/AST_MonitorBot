@@ -1,71 +1,124 @@
-import os
+# insta_client.py
+import time
+from typing import Any, Tuple, Optional
+
 import httpx
 
+from config import RAPIDAPI_KEY, RAPIDAPI_HOST
 
-RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
-RAPIDAPI_HOST = os.getenv("RAPIDAPI_HOST", "instagram-scraper-stable-api.p.rapidapi.com")
+BASE_URL = "https://instagram-scraper-stable-api.p.rapidapi.com"
 
-HEADERS = {
-    "x-rapidapi-key": RAPIDAPI_KEY,
-    "x-rapidapi-host": RAPIDAPI_HOST,
-    "Content-Type": "application/x-www-form-urlencoded"
-}
-
-BASE_URL = f"https://{RAPIDAPI_HOST}"
+# мягкий лимит – одна пачка запросов раз в 1.2 секунды
+REQUEST_DELAY = 1.2
 
 
-async def _post(session: httpx.AsyncClient, endpoint: str, data: dict) -> dict:
-    try:
-        r = await session.post(f"{BASE_URL}/{endpoint}", headers=HEADERS, data=data, timeout=20)
-        r.raise_for_status()
-        return r.json()
-    except Exception as e:
-        return {"error": str(e)}
+class InstagramClient:
+    def __init__(self):
+        self._client = httpx.AsyncClient(timeout=20.0)
+        self._last_request_ts = 0.0
 
+    async def _sleep_if_needed(self):
+        now = time.time()
+        delta = now - self._last_request_ts
+        if delta < REQUEST_DELAY:
+            await asyncio.sleep(REQUEST_DELAY - delta)
+        self._last_request_ts = time.time()
 
-async def check_user(username: str) -> dict:
-    """
-    Универсальная проверка профиля: сторис, рилсы, посты, фолловеры, бан.
-    """
-    async with httpx.AsyncClient() as session:
-        out = {
-            "username": username,
-            "has_story": False,
-            "has_reels": False,
-            "has_photo": False,
-            "followers": None,
-            "banned": False,
-            "error": None,
+    async def _post(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
+        import asyncio  # локальный импорт, чтобы не тянуть наверх
+
+        await self._sleep_if_needed()
+
+        headers = {
+            "x-rapidapi-key": RAPIDAPI_KEY,
+            "x-rapidapi-host": RAPIDAPI_HOST,
+            "Content-Type": "application/x-www-form-urlencoded",
         }
 
-        # --- POSTS ---
-        posts = await _post(session, "get_ig_user_posts.php", {"username_or_url": username, "amount": 1})
-        if "error" in posts:
-            out["error"] = f"posts:{posts['error']}"
-        elif posts.get("posts") is None:
-            out["banned"] = True
-        elif posts.get("posts"):
-            out["has_photo"] = True
+        url = f"{BASE_URL}{endpoint}"
+        resp = await self._client.post(url, data=payload, headers=headers)
 
-        # --- REELS ---
-        reels = await _post(session, "get_ig_user_reels.php", {"username_or_url": username, "amount": 1})
-        if "error" in reels:
-            out["error"] = f"{out['error']}; reels:{reels['error']}" if out["error"] else f"reels:{reels['error']}"
-        elif reels.get("reels"):
-            out["has_reels"] = True
+        # RapidAPI почти всегда даёт 200, даже при ошибках, так что:
+        data = resp.json()
+        return data
 
-        # --- STORIES ---
-        stories = await _post(session, "get_ig_user_highlight_stories.php", {"username_or_url": username})
-        if "error" in stories:
-            out["error"] = f"{out['error']}; stories:{stories['error']}" if out["error"] else f"stories:{stories['error']}"
-        elif stories.get("stories"):
-            out["has_story"] = True
+    # --------- helpers ---------
 
-        # --- FOLLOWERS ---
-        about = await _post(session, "get_ig_user_about.php", {"username_or_url": username})
-        if "error" in about:
-            out["error"] = f"{out['error']}; about:{about['error']}" if out["error"] else f"about:{about['error']}"
-        else:
-            out["followers"] = about.get("user", {}).get("follower_count")
+    @staticmethod
+    def _check_recent(items: list[dict[str, Any]], hours: int = 24) -> bool:
+        """
+        Проверяем, есть ли среди items что-то свежее за N часов.
+        Пытаемся угадать поле с таймштампом: timestamp / taken_at / taken_at_timestamp.
+        Если ничего нет – считаем, что свежего нет.
+        """
+        if not items:
+            return False
 
-        return out
+        now = int(time.time())
+        max_age = hours * 3600
+
+        for it in items:
+            ts = (
+                it.get("timestamp")
+                or it.get("taken_at")
+                or it.get("taken_at_timestamp")
+                or it.get("taken_at_ts")
+            )
+            try:
+                ts_int = int(ts)
+            except (TypeError, ValueError):
+                continue
+
+            if 0 < now - ts_int <= max_age:
+                return True
+
+        return False
+
+    # --------- API wrappers ---------
+
+    async def get_posts(self, username: str) -> Tuple[bool, Optional[str]]:
+        """
+        Возвращает (есть_ли_свежие_посты_за_сутки, ошибка).
+        Ошибка = None, если всё ок.
+        """
+        data = await self._post("/get_ig_user_posts.php", {"username_or_url": username})
+
+        if "error" in data:
+            return False, data["error"]
+
+        posts = data.get("posts") or data.get("data") or []
+        has_recent = self._check_recent(posts)
+        return has_recent, None
+
+    async def get_reels(self, username: str) -> Tuple[bool, Optional[str]]:
+        data = await self._post("/get_ig_user_reels.php", {"username_or_url": username})
+
+        if "error" in data:
+            return False, data["error"]
+
+        reels = data.get("reels") or data.get("data") or []
+        has_recent = self._check_recent(reels)
+        return has_recent, None
+
+    async def get_stories(self, username: str) -> Tuple[bool, Optional[str]]:
+        data = await self._post(
+            "/get_ig_user_stories.php", {"username_or_url": username}
+        )
+
+        if "error" in data:
+            return False, data["error"]
+
+        # у сториз обычно поле stories / data / items
+        stories = data.get("stories") or data.get("data") or data.get("items") or []
+        has_recent = self._check_recent(stories, hours=24)
+        return has_recent, None
+
+    async def get_followers_count(self, username: str) -> Optional[int]:
+        """
+        Если в ответах на посты будет user->follower_count – можно будет сюда докрутить.
+        Пока возвращаем None, чтобы не ломать логику.
+        """
+        return None
+
+    async def aclose(self):
+        await self._client.aclose()
