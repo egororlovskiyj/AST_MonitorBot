@@ -8,19 +8,20 @@ _pool: asyncpg.Pool | None = None
 
 
 async def get_pool() -> asyncpg.Pool:
-    """Создаём и возвращаем общий пул подключений к БД."""
+    """
+    Ленивая инициализация пула. Один пул на весь процесс.
+    """
     global _pool
     if _pool is None:
-        # ВАЖНО: min_size <= max_size, иначе asyncpg ругается
-        _pool = await asyncpg.create_pool(
-            DATABASE_URL,
-            min_size=1,
-            max_size=5,
-        )
+        _pool = await asyncpg.create_pool(DATABASE_URL, max_size=5)
     return _pool
 
 
 async def init_db():
+    """
+    Создаём таблицу activity, если её нет.
+    Схема новая: ts (TIMESTAMPTZ), без столбца day.
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
@@ -39,7 +40,7 @@ async def init_db():
             """
         )
 
-        # индексы
+        # индекс по username + ts (последние записи по юзеру быстро находятся)
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_activity_username_ts ON activity(username, ts DESC);"
         )
@@ -72,7 +73,10 @@ async def save_result(
 
 
 async def get_prev_followers(username: str) -> int | None:
-    """Последнее значение followers до сегодняшнего дня."""
+    """
+    Последнее значение followers для пользователя.
+    Сейчас нигде не используется, но пусть будет.
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -93,7 +97,8 @@ async def get_prev_followers(username: str) -> int | None:
 
 async def get_inactive_users(days: int = 3) -> list[str]:
     """
-    Юзеры, у которых N дней подряд НЕ было ни сторис, ни рилсов, ни фоток.
+    Юзеры, у которых N дней подряд не было ни сториз, ни рилс, ни постов.
+    Используем новую схему с ts.
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -113,9 +118,8 @@ async def get_inactive_users(days: int = 3) -> list[str]:
         has_any = bool(r["story"] or r["reels"] or r["photo"])
         per_user.setdefault(u, []).append((r["ts"], has_any))
 
-    inactive = []
+    inactive: list[str] = []
     for u, entries in per_user.items():
-        # берём последние N записей (по времени)
         entries.sort(key=lambda x: x[0], reverse=True)
         last = entries[:days]
         if len(last) < days:
@@ -127,7 +131,9 @@ async def get_inactive_users(days: int = 3) -> list[str]:
 
 
 async def get_last_status(username: str):
-    """Последняя запись по юзеру — пригодится, если захочешь потом расширять."""
+    """
+    Последняя запись по юзеру (на будущее, если захочешь расширять отчёт).
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -141,4 +147,3 @@ async def get_last_status(username: str):
             username,
         )
     return row
-
